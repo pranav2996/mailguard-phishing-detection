@@ -45,10 +45,6 @@ services:
           type: web
           name: mailguard-frontend
           envVarKey: RENDER_EXTERNAL_URL
-      - key: DB_URL
-        value: jdbc:h2:mem:mailguard;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
-      - key: H2_CONSOLE_ENABLED
-        value: "false"
 
   - type: web
     name: mailguard-frontend

@@ -1,14 +1,14 @@
 # Mailguard phishing email detection
 
-A local educational email inspection app. The browser calls the Java Spring Boot API; Java calls the Python Flask service for actual scikit-learn predictions and persists results to H2. The app never visits or opens a URL submitted in message text.
+A local educational email inspection app. The browser calls the Java Spring Boot API; Java calls the Python Flask service for actual scikit-learn predictions and returns each result without storing it. The app never visits or opens a URL submitted in message text.
 
 ## What is included
 
 - Python dataset loader that inspects and maps both original CSV datasets without modifying them.
 - Four comparable classifiers (Multinomial Naive Bayes, Logistic Regression, Random Forest, and Linear SVM), TF-IDF text features, and message/URL indicators.
 - Flask prediction, health, and evaluation APIs; keyword and URL analysis.
-- Spring Boot validation, Flask integration, H2 history, dashboard statistics, and metrics endpoints.
-- Responsive browser dashboard for analysis, history, model evaluation, and project information.
+- Spring Boot validation, Flask integration, and model metrics endpoints.
+- Responsive browser dashboard for analysis, model evaluation, and project information.
 
 ## Existing datasets
 
@@ -72,7 +72,7 @@ Serve the frontend in a third terminal from the project root:
 & .\.venv\Scripts\python.exe -m http.server 5500 --directory frontend
 ```
 
-Open <http://localhost:5500>. Services default to Python `127.0.0.1:5000`, Java `localhost:8080`, and frontend `localhost:5500`. Set `ML_SERVICE_URL`, `PORT`, `DB_URL`, `DB_USER`, `DB_PASSWORD`, or `CORS_ORIGINS` to override defaults. The file-backed H2 database is created at `java-backend/data/phishing`.
+Open <http://localhost:5500>. Services default to Python `127.0.0.1:5000`, Java `localhost:8080`, and frontend `localhost:5500`. Set `ML_SERVICE_URL`, `PORT`, or `CORS_ORIGINS` to override defaults. Analysis requests are not persisted.
 
 ## API
 
@@ -80,9 +80,7 @@ Frontend-facing Java endpoints:
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/api/analyze` | Accepts `{ "emailText": "..." }`, returns model result and stores history. Maximum length 50,000 characters. |
-| GET | `/api/history` | Newest detections first. |
-| GET | `/api/stats` | Total, phishing, and safe detection counts. |
+| POST | `/api/analyze` | Accepts `{ "emailText": "..." }` and returns the model result without storing it. Maximum length 50,000 characters. |
 | GET | `/api/metrics` | Training report from Python. |
 | GET | `/api/health` | Java and Flask availability. |
 
@@ -97,14 +95,14 @@ $env:PYTHONPATH = "python-ml-service"
 .\.venv\Scripts\python.exe -m pytest -q python-ml-service\tests
 ```
 
-Run Java checks:
+Build and test Java:
 
 ```powershell
 cd java-backend
-.\mvnw.cmd test
+.\mvnw.cmd clean package
 ```
 
-The Python suite covers keyword rules, IP/shortener and malformed URLs, empty and oversized requests, Flask health, and prediction using the saved model. Java tests cover request validation, H2 history persistence, and Java service mapping of a Python prediction response. Frontend scripts were checked with `node --check`; the running static server returns the app at port 5500.
+The Python suite covers keyword rules, IP/shortener and malformed URLs, empty and oversized requests, Flask health, and prediction using the saved model. Java tests cover request validation and service mapping without persistence. Current verification completed 8 Python tests, 3 Java tests, Java packaging, frontend JavaScript syntax and navigation checks, and phishing/safe result rendering using actual saved-model predictions.
 
 ## Model and interpretation notes
 
@@ -116,21 +114,20 @@ TF-IDF word unigrams/bigrams and deterministic numeric signals are fit inside ea
 - **Java reports ML service unavailable:** start Flask and confirm <http://127.0.0.1:5000/health>.
 - **Frontend cannot reach Java:** run Spring Boot and open the site from `http://localhost:5500` or `http://127.0.0.1:5500` (the configured CORS origins).
 - **Python is installed elsewhere:** set `$python` to its `python.exe` path before the venv creation step.
-- H2 data is local and append-only for this app; stop Java before manually removing its database files.
 
 ## Layout
 
-`python-ml-service/` contains data handling, training, security analysis, Flask API, and reports. `java-backend/` contains the Spring Boot API and H2 persistence. `frontend/` contains the responsive UI. `docs/` contains architecture, dataset, and endpoint notes. The original dataset files are at the repository root.
+`python-ml-service/` contains data handling, training, security analysis, Flask API, and reports. `java-backend/` contains the stateless Spring Boot API. `frontend/` contains the responsive UI. `docs/` contains architecture, dataset, and endpoint notes. The original dataset files are at the repository root.
 
 ## Dataset distribution note
 
-This repository includes the two original CSV files as supplied by the project owner. No upstream source or redistribution license is documented in the repository, and no `LICENSE` file is present. A local scan of `phishing_cleaned.csv` found 47,141 email-address matches in sender, 55,241 in receiver, and 38,134 in body (some messages repeat addresses); matches include public and organizational domains. Treat the data as potentially personal information and confirm source permissions and applicable privacy requirements before further redistribution. The project owner explicitly approved publishing the original CSVs for this repository. The generated `python-ml-service/data/processed/combined_emails.csv`, local H2 files, and Python/Java build outputs are not published.
+This repository includes the two original CSV files as supplied by the project owner. No upstream source or redistribution license is documented in the repository, and no `LICENSE` file is present. A local scan of `phishing_cleaned.csv` found 47,141 email-address matches in sender, 55,241 in receiver, and 38,134 in body (some messages repeat addresses); matches include public and organizational domains. Treat the data as potentially personal information and confirm source permissions and applicable privacy requirements before further redistribution. The project owner explicitly approved publishing the original CSVs for this repository. The generated `python-ml-service/data/processed/combined_emails.csv` and Python/Java build outputs are not published.
 
 ## Deploy to Render Free
 
 The root `render.yaml` defines three free resources: a static frontend, a Flask/Gunicorn ML API, and a Dockerized Spring Boot API. It pins the Python service to the dependency versions used to serialize the checked-in Random Forest model. The model file is included so deployment does not retrain or modify either CSV.
 
-Deploy from the existing GitHub repository by selecting **New → Blueprint** in Render and choosing `render.yaml`. All dynamic services in the Blueprint explicitly use the `free` plan; the frontend is a free static site. Do not attach a paid disk or database. The Java-to-Flask token is generated by Render and referenced from the API service; it is not stored in the repository. The frontend build writes its API base from `JAVA_API_URL`; local builds default to `http://localhost:8080/api`.
+Deploy from the existing GitHub repository by selecting **New → Blueprint** in Render and choosing `render.yaml`. All dynamic services in the Blueprint explicitly use the `free` plan; the frontend is a free static site. The Blueprint provisions no database or persistent disk. The Java-to-Flask token is generated by Render and referenced from the API service; it is not stored in the repository. The frontend build writes its API base from `JAVA_API_URL`; local builds default to `http://localhost:8080/api`. No database, data volume, or analysis-record storage is configured.
 
 The Blueprint sets these runtime values:
 
@@ -141,8 +138,6 @@ The Blueprint sets these runtime values:
 | `ML_SERVICE_TOKEN` | Java and Flask | Render-generated shared token for Java-to-Flask prediction and metrics calls. |
 | `CORS_ORIGINS` | Java and Flask | The deployed frontend URL. |
 | `ML_TIMEOUT_MS` | Java | 120-second timeout to allow for a sleeping Flask service to start. |
-| `DB_URL` | Java | In-memory H2 database on Render. |
-| `H2_CONSOLE_ENABLED` | Java | Disabled in the public deployment. |
 | `PORT` | Web services | Supplied by Render; servers bind to `0.0.0.0`. |
 | `PYTHON_VERSION` | Flask | Pinned to the model's current Python minor release. |
 | `SPRING_PROFILES_ACTIVE` | Java | Render profile marker. |
@@ -157,12 +152,10 @@ The Blueprint sets these runtime values:
 
 The frontend build sets its Java API base URL from the Render service URL. The browser calls Java; Java calls Flask and forwards the shared service token. The Flask prediction route is intended for Java-to-Flask calls, not direct browser use. The public service URLs were read from the deployed Render service dashboard for commit `c56e51e`.
 
-To try the deployed app, open the frontend and use **Analyze email**. Submit one clearly suspicious sample (for example, an urgent account-verification message containing a fabricated URL such as `https://secure-bank-login.example.com/verify`) and one ordinary legitimate sample (for example, a meeting update with no request for credentials or payment). Review the classification, confidence, risk, URL and keyword indicators, and explanation. Open **Detection history** to confirm both analyses were saved, **Overview** to see updated counts, and **Performance** to inspect the model report. Predictions are model output and are not guaranteed ground truth; use fictional test messages and do not paste confidential email.
+To try the deployed app, open the frontend and use **Analyze email**. Submit one clearly suspicious sample (for example, an urgent account-verification message containing a fabricated URL such as `https://secure-bank-login.example.com/verify`) and one ordinary legitimate sample (for example, a meeting update with no request for credentials or payment). Review the classification, confidence, risk, URL and keyword indicators, and explanation. Return to **Overview** to start another analysis or open **Performance** to inspect the model report. Each analysis result exists only in the current response and browser view; it is not retained by the application. Predictions are model output and are not guaranteed ground truth; use fictional test messages and do not paste confidential email.
 
-The deployed Java endpoints include `GET /api/health`, `POST /api/analyze` with `{"emailText":"..."}`, `GET /api/history`, `GET /api/stats`, and `GET /api/metrics`. A successful `/api/health` response reports Java status and Flask health; `/actuator/health` reports Spring service health. The Flask health endpoint is `GET /health`.
+The deployed Java endpoints include `GET /api/health`, `POST /api/analyze` with `{"emailText":"..."}`, and `GET /api/metrics`. A successful `/api/health` response reports Java status and Flask health; `/actuator/health` reports Spring service health. The Flask health endpoint is `GET /health`.
 
-Live smoke test on 2026-11-20: two fictional messages submitted to the public Java `POST /api/analyze` endpoint returned saved record IDs and actual model results. The urgent credential-verification sample returned `PHISHING`, 0.5919 confidence, `HIGH` risk, one extracted URL, and credential-request/urgency indicators. The routine project-meeting sample returned `SAFE`, 0.6014 confidence, `LOW` risk, and no URL or keyword indicators. Confidence is uncalibrated model output. Automated GET checks for health, history, metrics, and the static homepage received Cloudflare challenge pages (HTTP 403) in the verification environment, so those GET responses and the interactive browser pages were not verified in that run.
-
-H2 uses ephemeral in-memory storage on Render. Detection history is available while the Java instance remains running and is lost when it restarts, spins down, or redeploys. A persistent disk or durable database is not configured.
+The currently published Render deployment was built from an earlier commit and has not been updated by these local source changes. Redeploy this revision before relying on the no-storage behavior or the changed frontend. The prior live smoke test and its predictions predate this change and do not verify the current source.
 
 Render Free web services use 512 MB RAM and share 750 instance-hours per workspace per calendar month. A service idles down after 15 minutes without inbound traffic; the next request may wait about a minute for it to start. Free services can restart and have ephemeral filesystems, and usage limits can suspend them. Static sites are free and do not consume web-service instance-hours. See [Render's current Free plan limits](https://render.com/docs/free).

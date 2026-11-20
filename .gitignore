@@ -24,6 +24,3 @@ python-ml-service/models/saved/*.joblib
 !python-ml-service/models/saved/phishing_model.joblib
 python-ml-service/data/processed/
 java-backend/target/
-java-backend/data/
-*.mv.db
-*.trace.db
