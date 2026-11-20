@@ -1,0 +1,63 @@
+services:
+  - type: web
+    name: mailguard-ml
+    runtime: python
+    rootDir: python-ml-service
+    plan: free
+    buildCommand: pip install -r requirements-render.txt
+    startCommand: gunicorn --workers 1 --threads 2 --timeout 120 --bind 0.0.0.0:$PORT app:app
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.14.10
+      - key: CORS_ORIGINS
+        fromService:
+          type: web
+          name: mailguard-frontend
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: ML_SERVICE_TOKEN
+        generateValue: true
+
+  - type: web
+    name: mailguard-api
+    runtime: docker
+    rootDir: java-backend
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /actuator/health
+    envVars:
+      - key: SPRING_PROFILES_ACTIVE
+        value: render
+      - key: ML_SERVICE_URL
+        fromService:
+          type: web
+          name: mailguard-ml
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: ML_SERVICE_TOKEN
+        fromService:
+          type: web
+          name: mailguard-ml
+          envVarKey: ML_SERVICE_TOKEN
+      - key: ML_TIMEOUT_MS
+        value: "120000"
+      - key: CORS_ORIGINS
+        fromService:
+          type: web
+          name: mailguard-frontend
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: DB_URL
+        value: jdbc:h2:mem:mailguard;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+      - key: H2_CONSOLE_ENABLED
+        value: "false"
+
+  - type: web
+    name: mailguard-frontend
+    runtime: static
+    buildCommand: python scripts/configure_frontend.py
+    staticPublishPath: frontend
+    envVars:
+      - key: JAVA_API_URL
+        fromService:
+          type: web
+          name: mailguard-api
+          envVarKey: RENDER_EXTERNAL_URL
