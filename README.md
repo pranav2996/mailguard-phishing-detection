@@ -69,10 +69,14 @@ cd java-backend
 Serve the frontend in a third terminal from the project root:
 
 ```powershell
-& .\.venv\Scripts\python.exe -m http.server 5500 --directory frontend
+& .\.venv\Scripts\python.exe scripts\dev_frontend.py
 ```
 
-Open <http://localhost:5500>. Services default to Python `127.0.0.1:5000`, Java `localhost:8080`, and frontend `localhost:5500`. Set `ML_SERVICE_URL`, `PORT`, or `CORS_ORIGINS` to override defaults. Analysis requests are not persisted.
+Open <http://localhost:5500>. The browser calls the Java API at `http://localhost:8080/api`; Java calls Flask at `http://127.0.0.1:5000`. Start Flask and Java before testing. Directly opening `frontend\index.html` with `file://` cannot use the configured browser API workflow; the page displays a launch warning and gives the command above. Analysis requests are not persisted.
+
+## Deployed application
+
+The Render static build sets `JAVA_API_URL` from the deployed Java service URL and writes it to a generated runtime configuration. The browser calls Java only; the Flask service URL and its service token remain in Render's server-side Java environment. The browser does not use loopback URLs on the deployed site. The free Render services may sleep and take time to wake, so the interface allows a longer request window and shows a wake-up message when a request times out.
 
 ## API
 

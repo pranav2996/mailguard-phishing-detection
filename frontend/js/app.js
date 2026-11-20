@@ -1,14 +1,253 @@
-const pages=['dashboard','analyze','performance','about'];
-const $=id=>document.getElementById(id);
+const pages = ['dashboard', 'analyze', 'performance', 'about'];
+const $ = id => document.getElementById(id);
 let modelChart;
-function route(){let name=location.hash.replace('#','')||'dashboard';if(!pages.includes(name))name='dashboard';pages.forEach(p=>{$(`page-${p}`).classList.toggle('active',p===name)});document.querySelectorAll('.nav-link').forEach(a=>a.classList.toggle('active',a.dataset.page===name));const active=document.querySelector(`.nav-link[data-page="${name}"]`);$('crumb-current').textContent=active?.textContent.trim()||'Overview';if(name==='performance')loadMetrics()}
-async function checkHealth(){try{const d=await api('/health');const backendOk=d.status==='ok';const modelOk=backendOk&&d.ml?.status==='ok'&&d.ml?.model_available===true;const label=modelOk?'Services online':!backendOk?'Backend unavailable':d.ml?.status==='unavailable'?'ML service offline':d.ml?.status==='ok'?'Model unavailable':'ML health unknown';$('service-label').textContent=label;$('service-dot').classList.toggle('online',Boolean(modelOk))}catch{$('service-label').textContent='Backend unavailable';$('service-dot').classList.remove('online')}}
-function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-function showResult(r){$('result-placeholder').hidden=true;const card=$('result-card');card.hidden=false;const phish=r.classification==='PHISHING';const kws=Object.values(r.keywords||{}).flat();const urls=r.urls||[];const confidence=r.confidence==null?'Not available':`${Math.round(r.confidence*100)}%${r.confidenceType==='uncalibrated_model_probability'?' model confidence · uncalibrated':' decision score · not calibrated'}`;card.innerHTML=`<div class="result-banner ${phish?'phishing':''}"><div class="result-topline"><div><div class="result-kicker">MODEL CLASSIFICATION</div><div class="result-classification">${phish?'Phishing':'Likely safe'}</div><div class="confidence">${esc(confidence)}</div></div><span class="risk-pill ${(r.riskLevel||'low').toLowerCase()}">${esc(r.riskLevel||'low')} risk</span></div></div><div class="result-section"><h3>Why it was flagged</h3><ul class="reason-list">${(r.reasons||[]).map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div><div class="result-section"><h3>Suspicious language</h3>${kws.length?`<div class="keyword-pills">${kws.map(x=>`<span class="keyword-pill">${esc(x)}</span>`).join('')}</div>`:'<span class="confidence">No configured phrases detected.</span>'}</div><div class="result-section"><h3>Extracted links · ${urls.length}</h3>${urls.length?urls.map(u=>`<div class="url-item">${esc(u.url)}${u.indicators?.length?`<small>${esc(u.indicators.join(' · '))}</small>`:''}</div>`).join(''):'<span class="confidence">No links found. Submitted URLs are never opened.</span>'}</div><div class="result-section"><h3>Message details</h3><span class="confidence">${Number(r.features?.emailLength||0).toLocaleString()} characters · ${Number(r.features?.wordCount||0).toLocaleString()} words · ${Number(r.features?.urlCount||0)} links</span></div>`}
-async function analyze(){const text=$('email-text').value;const error=$('form-error');error.hidden=true;if(!text.trim()){error.textContent='Paste some email content before starting the analysis.';error.hidden=false;return}const btn=$('analyze-button');btn.disabled=true;$('loading-label').hidden=false;try{showResult(await api('/analyze',{method:'POST',body:JSON.stringify({emailText:text})}))}catch(e){error.textContent=e.message;error.hidden=false}finally{btn.disabled=false;$('loading-label').hidden=true}}
-async function loadMetrics(){try{const d=await api('/metrics');$('metrics-empty').hidden=true;$('metrics-content').hidden=false;$('best-model-tag').textContent=d.best_model||'Selected model';$('selected-model-name').textContent=d.best_model||'—';const entries=Object.entries(d.metrics||{});$('algorithm-grid').innerHTML=entries.map(([name,m])=>`<article class="algorithm-card ${name===d.best_model?'selected':''}"><small>${esc(name)}${name===d.best_model?' · selected':''}</small><strong>${(100*(m.f1||0)).toFixed(1)}%</strong><span>Acc ${(100*(m.accuracy||0)).toFixed(1)}% · Prec ${(100*(m.precision||0)).toFixed(1)}% · Rec ${(100*(m.recall||0)).toFixed(1)}% · AUC ${(100*(m.roc_auc||0)).toFixed(1)}%</span></article>`).join('');const chosen=d.metrics?.[d.best_model];if(chosen){const m=chosen.confusion_matrix;$('confusion-matrix').innerHTML=`<table class="matrix"><tr><th></th><th>Predicted safe</th><th>Predicted phishing</th></tr><tr><th>Actual safe</th><td class="diagonal">${m?.[0]?.[0]??0}</td><td>${m?.[0]?.[1]??0}</td></tr><tr><th>Actual phishing</th><td>${m?.[1]?.[0]??0}</td><td class="diagonal">${m?.[1]?.[1]??0}</td></tr></table>`}const ds=d.dataset_report||[];$('dataset-details').innerHTML=ds.map(x=>`<div class="dataset-card"><strong>${esc(x.file)}</strong><span>${Number(x.usable||0).toLocaleString()} usable of ${Number(x.rows||0).toLocaleString()} rows<br>${esc(JSON.stringify(x.label_counts||{}))}</span></div>`).join('')+`<div class="dataset-card"><strong>Training split</strong><span>${Number(d.train_rows||0).toLocaleString()} train · ${Number(d.test_rows||0).toLocaleString()} test<br>${Number(d.duplicates_removed||0).toLocaleString()} exact text duplicates removed</span></div>`;drawChart(entries)}catch{$('metrics-content').hidden=true;$('metrics-empty').hidden=false}}
-function drawChart(entries){if(!window.Chart)return;const canvas=$('model-chart');if(modelChart)modelChart.destroy();modelChart=new Chart(canvas,{type:'bar',data:{labels:entries.map(([n])=>n),datasets:[{data:entries.map(([,m])=>m.f1),backgroundColor:entries.map(([n])=>n===$('best-model-tag').textContent?'#315efb':'#b9c7fa'),borderRadius:5,maxBarThickness:38}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`F1 ${(c.raw*100).toFixed(1)}%`}}},scales:{y:{beginAtZero:true,max:1,ticks:{callback:v=>`${Math.round(v*100)}%`,font:{size:9}},grid:{color:'#edf0f5'}},x:{ticks:{font:{size:9}},grid:{display:false}}}}})}
-document.querySelectorAll('.nav-link').forEach(a=>a.addEventListener('click',()=>{location.hash=a.dataset.page}));window.addEventListener('hashchange',route);$('analyze-button').addEventListener('click',analyze);$('clear-button').addEventListener('click',()=>{$('email-text').value='';$('char-count').textContent='0 / 50,000';$('form-error').hidden=true;$('result-card').hidden=true;$('result-placeholder').hidden=false});$('email-text').addEventListener('input',e=>{$('char-count').textContent=`${e.target.value.length.toLocaleString()} / 50,000`});route();checkHealth();
 
-function appendReportCards(){const grid=document.querySelector('#page-performance .performance-grid');if(!grid)return;[['roc_curves.png','ROC curve','ROC curves computed on the held-out test split.'],['class_distribution.png','Class distribution','Actual normalized examples from both supplied datasets.']].forEach(([file,title,alt])=>{if(document.getElementById(`report-${file}`))return;const card=document.createElement('article');card.className='panel chart-panel';const heading=document.createElement('div');heading.className='panel-heading';const label=document.createElement('div');label.innerHTML=`<p class="eyebrow">TRAINING REPORT</p><h2>${title}</h2>`;heading.append(label);const img=document.createElement('img');img.id=`report-${file}`;img.src=`assets/${file}`;img.alt=alt;img.style.cssText='display:block;width:100%;height:190px;object-fit:contain;margin-top:12px';card.append(heading,img);grid.append(card)})}
-appendReportCards();
+function route() {
+  let name = location.hash.slice(1) || 'dashboard';
+  if (!pages.includes(name)) name = 'dashboard';
+  pages.forEach(page => $(`page-${page}`).classList.toggle('active', page === name));
+  document.querySelectorAll('.nav-link').forEach(link => link.classList.toggle('active', link.dataset.page === name));
+  closeNavigation();
+  if (name === 'performance') loadMetrics();
+}
+
+function closeNavigation() {
+  $('main-nav').classList.remove('open');
+  $('menu-toggle').setAttribute('aria-expanded', 'false');
+  $('menu-toggle').setAttribute('aria-label', 'Open navigation');
+}
+
+function toggleNavigation() {
+  const open = !$('main-nav').classList.contains('open');
+  $('main-nav').classList.toggle('open', open);
+  $('menu-toggle').setAttribute('aria-expanded', String(open));
+  $('menu-toggle').setAttribute('aria-label', open ? 'Close navigation' : 'Open navigation');
+}
+
+async function checkHealth() {
+  const fileMode = location.protocol === 'file:';
+  $('file-warning').hidden = !fileMode;
+  let label = fileMode ? 'Open local web server' : 'Backend unavailable';
+  let detail = fileMode ? 'Use http://localhost:5500 for API access' : 'Java API could not be reached';
+  let ready = false;
+  if (!fileMode) {
+    try {
+      const health = await api('/health');
+      if (!health || health.status !== 'ok') {
+        label = 'Backend unavailable';
+        detail = 'Java API returned an unhealthy or invalid response';
+      } else if (!health.ml || health.ml.status !== 'ok') {
+        label = 'ML service offline';
+        detail = 'Java is online; Python ML service is unavailable';
+      } else if (health.ml.model_available !== true) {
+        label = 'Model unavailable';
+        detail = 'ML service is online; saved model is unavailable';
+      } else {
+        ready = true;
+        label = 'Services online';
+        detail = 'Java API, ML service, and model are ready';
+      }
+    } catch (error) {
+      label = 'Backend unavailable';
+      detail = error.message.includes('wake') ? 'Render service is waking; retry shortly' : 'Java API could not be reached';
+    }
+  }
+  $('service-label').textContent = label;
+  $('service-detail').textContent = detail;
+  $('dashboard-service-label').textContent = ready ? 'Java and ML services are ready' : label;
+  $('top-status').textContent = ready ? 'Model Ready' : label;
+  document.querySelectorAll('.service-pulse').forEach(dot => dot.classList.toggle('online', ready));
+  document.querySelector('.model-status i').classList.toggle('status-offline', !ready);
+}
+
+function esc(value) {
+  return String(value ?? '').replace(/[&<>"']/g, character => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  })[character]);
+}
+
+function renderBrandIndicators(result) {
+  const source = result.brandIndicators ?? result.brand_indicators ?? result.signals?.brandImpersonation;
+  if (!source) return '';
+  const values = Array.isArray(source) ? source : [source];
+  const labels = values.map(value => typeof value === 'string' ? value : value?.message || value?.indicator || value?.brand).filter(Boolean);
+  if (!labels.length) return '';
+  return `<section class="result-section"><h3>Brand indicators</h3><ul class="reason-list">${labels.map(label => `<li>${esc(label)}</li>`).join('')}</ul></section>`;
+}
+
+function showResult(result) {
+  $('result-placeholder').hidden = true;
+  const card = $('result-card');
+  card.hidden = false;
+
+  const classification = String(result.classification || 'UNKNOWN').toUpperCase();
+  const phishing = classification === 'PHISHING';
+  const risk = String(result.riskLevel || 'LOW').toUpperCase();
+  const riskClass = ['LOW', 'MEDIUM', 'HIGH'].includes(risk) ? risk.toLowerCase() : 'low';
+  const confidence = result.confidence == null
+    ? 'Not available'
+    : `${Math.round(Number(result.confidence) * 100)}%${result.confidenceType === 'uncalibrated_model_probability' ? ' model confidence · uncalibrated' : ' decision score · not calibrated'}`;
+  const keywords = Object.values(result.keywords || {}).flat().filter(Boolean);
+  const urls = Array.isArray(result.urls) ? result.urls : [];
+  const reasons = Array.isArray(result.reasons) ? result.reasons : [];
+  const features = result.features || {};
+  const explanation = reasons.length
+    ? `<ul class="reason-list">${reasons.map(reason => `<li>${esc(reason)}</li>`).join('')}</ul>`
+    : '<span class="signal-empty">No explanation was provided by the analysis service.</span>';
+  const keywordContent = keywords.length
+    ? `<div class="keyword-pills">${keywords.map(word => `<span class="keyword-pill">${esc(word)}</span>`).join('')}</div>`
+    : '<span class="signal-empty">No configured phrases detected.</span>';
+  const urlContent = urls.length
+    ? urls.map(item => `<div class="url-item">${esc(item.url || item.host || 'URL detected')}${item.indicators?.length ? `<small>${esc(item.indicators.join(' · '))}</small>` : ''}</div>`).join('')
+    : '<span class="signal-empty">No links found. Submitted URLs are never opened.</span>';
+
+  card.innerHTML = `
+    <div class="result-banner ${phishing ? 'phishing' : ''}">
+      <div class="result-topline"><div><div class="result-kicker">MODEL CLASSIFICATION</div>
+        <div class="result-classification">${phishing ? 'Phishing' : esc(classification === 'SAFE' ? 'Likely safe' : classification)}</div>
+        <div class="confidence">${esc(confidence)}</div></div>
+        <span class="risk-pill ${riskClass}">${esc(risk)} risk</span>
+      </div>
+    </div>
+    <section class="result-section"><h3>Why it was flagged</h3>${explanation}</section>
+    <section class="result-section"><h3>Suspicious language</h3>${keywordContent}</section>
+    ${renderBrandIndicators(result)}
+    <section class="result-section"><h3>Extracted links · ${urls.length}</h3>${urlContent}</section>
+    <section class="result-section"><h3>Message details</h3><div class="message-details">${Number(features.emailLength || 0).toLocaleString()} characters · ${Number(features.wordCount || 0).toLocaleString()} words · ${Number(features.urlCount ?? urls.length)} links</div></section>`;
+}
+
+async function analyze() {
+  const content = $('email-text').value;
+  const error = $('form-error');
+  error.hidden = true;
+  if (!content.trim()) {
+    error.textContent = 'Paste some email content before starting the analysis.';
+    error.hidden = false;
+    return;
+  }
+
+  const button = $('analyze-button');
+  button.disabled = true;
+  $('loading-label').hidden = false;
+  try {
+    showResult(await api('/analyze', { method: 'POST', body: JSON.stringify({ emailText: content }) }));
+  } catch (exception) {
+    error.textContent = exception.message || 'The analysis could not be completed. Try again.';
+    error.hidden = false;
+  } finally {
+    button.disabled = false;
+    $('loading-label').hidden = true;
+  }
+}
+
+function metricValue(value) {
+  return Number.isFinite(Number(value)) ? `${(Number(value) * 100).toFixed(1)}%` : 'Not available';
+}
+
+function renderMetricSummary(metrics) {
+  const selected = metrics || {};
+  const cards = [
+    ['Accuracy', selected.accuracy],
+    ['Precision', selected.precision],
+    ['Recall', selected.recall],
+    ['F1 score', selected.f1]
+  ];
+  $('metric-summary-grid').innerHTML = cards.map(([label, value]) => `
+    <article class="metric-card glass-card"><span>${label}</span><strong>${metricValue(value)}</strong><small>Held-out test split</small></article>`).join('');
+}
+
+async function loadMetrics() {
+  try {
+    const report = await api('/metrics');
+    $('metrics-empty').hidden = true;
+    $('metrics-content').hidden = false;
+    $('best-model-tag').textContent = report.best_model || 'Selected model';
+    $('selected-model-name').textContent = report.best_model || 'Not available';
+
+    const entries = Object.entries(report.metrics || {});
+    const selected = report.metrics?.[report.best_model];
+    renderMetricSummary(selected);
+    if (selected?.confusion_matrix) {
+      const matrix = selected.confusion_matrix;
+      $('confusion-matrix').innerHTML = `<table class="matrix"><tr><th></th><th>Predicted safe</th><th>Predicted phishing</th></tr><tr><th>Actual safe</th><td class="diagonal">${Number(matrix[0]?.[0] ?? 0).toLocaleString()}</td><td>${Number(matrix[0]?.[1] ?? 0).toLocaleString()}</td></tr><tr><th>Actual phishing</th><td>${Number(matrix[1]?.[0] ?? 0).toLocaleString()}</td><td class="diagonal">${Number(matrix[1]?.[1] ?? 0).toLocaleString()}</td></tr></table>`;
+    } else {
+      $('confusion-matrix').innerHTML = '<p class="signal-empty">Confusion matrix not available.</p>';
+    }
+
+    const datasets = report.dataset_report || [];
+    $('dataset-details').innerHTML = datasets.map(dataset => `
+      <div class="dataset-card"><strong>${esc(dataset.file)}</strong><span>${Number(dataset.usable || 0).toLocaleString()} usable of ${Number(dataset.rows || 0).toLocaleString()} rows<br>${esc(JSON.stringify(dataset.label_counts || {}))}</span></div>`).join('') + `
+      <div class="dataset-card"><strong>Evaluation split</strong><span>${Number(report.train_rows || 0).toLocaleString()} train · ${Number(report.test_rows || 0).toLocaleString()} test<br>${Number(report.duplicates_removed || 0).toLocaleString()} exact duplicates removed</span></div>`;
+    drawChart(entries, report.best_model);
+  } catch (exception) {
+    $('metrics-content').hidden = true;
+    $('metrics-empty').hidden = false;
+    $('metrics-error').textContent = exception.message || 'The model evaluation report could not be loaded.';
+  }
+}
+
+function drawChart(entries, selectedName) {
+  if (!window.Chart) return;
+  const canvas = $('model-chart');
+  if (modelChart) modelChart.destroy();
+  const context = canvas.getContext('2d');
+  const gradient = context.createLinearGradient(0, 0, 0, 230);
+  gradient.addColorStop(0, 'rgba(70, 235, 255, .95)');
+  gradient.addColorStop(.48, 'rgba(70, 125, 255, .83)');
+  gradient.addColorStop(1, 'rgba(151, 55, 255, .58)');
+  const selectedGradient = context.createLinearGradient(0, 0, 0, 230);
+  selectedGradient.addColorStop(0, '#b94cff');
+  selectedGradient.addColorStop(.55, '#7751ff');
+  selectedGradient.addColorStop(1, 'rgba(47, 122, 255, .65)');
+
+  modelChart = new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels: entries.map(([name]) => name),
+      datasets: [{
+        data: entries.map(([, values]) => Number(values.f1) || 0),
+        backgroundColor: entries.map(([name]) => name === selectedName ? selectedGradient : gradient),
+        borderColor: entries.map(([name]) => name === selectedName ? '#d4a6ff' : 'rgba(89,230,255,.74)'),
+        borderWidth: 1,
+        borderRadius: 8,
+        maxBarThickness: 46
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { backgroundColor: 'rgba(8,13,53,.96)', borderColor: 'rgba(85,239,255,.4)', borderWidth: 1, titleColor: '#fff', bodyColor: '#d6e2ff', callbacks: { label: item => ` F1 score ${(item.raw * 100).toFixed(1)}%` } }
+      },
+      scales: {
+        y: { beginAtZero: true, max: 1, ticks: { color: '#b4c2eb', callback: value => `${Math.round(value * 100)}%`, font: { size: 9 } }, grid: { color: 'rgba(174,194,255,.12)' }, border: { display: false } },
+        x: { ticks: { color: '#c4d0f2', font: { size: 9 } }, grid: { display: false }, border: { color: 'rgba(174,194,255,.2)' } }
+      }
+    }
+  });
+}
+
+document.querySelectorAll('.nav-link').forEach(link => link.addEventListener('click', () => {
+  if (location.hash === link.getAttribute('href')) route();
+}));
+window.addEventListener('hashchange', route);
+$('menu-toggle').addEventListener('click', toggleNavigation);
+window.addEventListener('keydown', event => { if (event.key === 'Escape') closeNavigation(); });
+$('analyze-button').addEventListener('click', analyze);
+$('clear-button').addEventListener('click', () => {
+  $('email-text').value = '';
+  $('char-count').textContent = '0 / 50,000';
+  $('form-error').hidden = true;
+  $('result-card').hidden = true;
+  $('result-placeholder').hidden = false;
+  $('email-text').focus();
+});
+$('email-text').addEventListener('input', event => {
+  $('char-count').textContent = `${event.target.value.length.toLocaleString()} / 50,000`;
+});
+$('email-text').addEventListener('keydown', event => {
+  if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') analyze();
+});
+route();
+checkHealth();

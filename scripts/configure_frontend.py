@@ -11,18 +11,19 @@ is_render = bool(os.getenv("RENDER_SERVICE_ID"))
 configured = os.getenv("JAVA_API_URL", "").strip().rstrip("/")
 if is_render and not configured:
     raise SystemExit("JAVA_API_URL must be set for a Render frontend build.")
+if configured:
+    if not configured.startswith(("http://", "https://")):
+        configured = f"https://{configured}"
+    parsed = urlparse(configured)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise SystemExit("JAVA_API_URL must be an absolute HTTP(S) URL or hostname.")
+    if parsed.username or parsed.password:
+        raise SystemExit("JAVA_API_URL must not contain credentials.")
+    if is_render and parsed.hostname.lower() in {"localhost", "127.0.0.1", "::1"}:
+        raise SystemExit("JAVA_API_URL cannot point to localhost in a Render frontend build.")
 if not configured:
-    configured = "http://localhost:8080"
-if not configured.startswith(("http://", "https://")):
-    configured = f"https://{configured}"
-parsed = urlparse(configured)
-if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-    raise SystemExit("JAVA_API_URL must be an absolute HTTP(S) URL or hostname.")
-if parsed.username or parsed.password:
-    raise SystemExit("JAVA_API_URL must not contain credentials.")
-if is_render and parsed.hostname.lower() in {"localhost", "127.0.0.1", "::1"}:
-    raise SystemExit("JAVA_API_URL cannot point to localhost in a Render frontend build.")
-if configured.endswith("/api"):
+    api_url = ""
+elif configured.endswith("/api"):
     api_url = configured
 else:
     api_url = f"{configured}/api"
