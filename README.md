@@ -124,7 +124,7 @@ TF-IDF word unigrams/bigrams and deterministic numeric signals are fit inside ea
 
 ## Dataset distribution note
 
-This repository includes the two original CSV files as supplied by the project owner. The provided project files do not document their upstream source or redistribution license; verify those terms before redistributing the repository. The phishing CSV includes sender and receiver fields with email-like values. The generated `python-ml-service/data/processed/combined_emails.csv`, local H2 files, and Python/Java build outputs are not published.
+This repository includes the two original CSV files as supplied by the project owner. No upstream source or redistribution license is documented in the repository, and no `LICENSE` file is present. A local scan of `phishing_cleaned.csv` found 47,141 email-address matches in sender, 55,241 in receiver, and 38,134 in body (some messages repeat addresses); matches include public and organizational domains. Treat the data as potentially personal information and confirm source permissions and applicable privacy requirements before further redistribution. The project owner explicitly approved publishing the original CSVs for this repository. The generated `python-ml-service/data/processed/combined_emails.csv`, local H2 files, and Python/Java build outputs are not published.
 
 ## Deploy to Render Free
 
@@ -147,8 +147,22 @@ The Blueprint sets these runtime values:
 | `PYTHON_VERSION` | Flask | Pinned to the model's current Python minor release. |
 | `SPRING_PROFILES_ACTIVE` | Java | Render profile marker. |
 
-Render Free web services have 512 MB RAM each and share 750 instance-hours per workspace each month. They spin down after 15 idle minutes; the first request can take about a minute to warm a service. If both backend services ran continuously, they would use the shared allowance in about 15.6 days. Static sites are free and do not use web-service instance-hours. See [Render's free plan limits](https://render.com/docs/free).
+### Live deployment
 
-H2 uses ephemeral in-memory storage on Render. Detection history is available while the Java instance remains running and is lost when it restarts, spins down, or redeploys. A persistent disk or durable database would require a different service plan or storage arrangement and is intentionally not configured.
+| Component | Public URL | Health check |
+|---|---|---|
+| Frontend | <https://mailguard-frontend-sfk7.onrender.com> | Open the homepage; static sites do not expose a separate health API. |
+| Java API | <https://mailguard-api-q3o6.onrender.com> | <https://mailguard-api-q3o6.onrender.com/actuator/health> (Spring Actuator) and <https://mailguard-api-q3o6.onrender.com/api/health> (application and ML connectivity). |
+| Python Flask API | <https://mailguard-ml.onrender.com> | <https://mailguard-ml.onrender.com/health> |
 
-The live frontend, Java API, and Flask API URLs will be recorded here after the Blueprint deployment is created and verified.
+The frontend build sets its Java API base URL from the Render service URL. The browser calls Java; Java calls Flask and forwards the shared service token. The Flask prediction route is intended for Java-to-Flask calls, not direct browser use. The public service URLs were read from the deployed Render service dashboard for commit `c56e51e`.
+
+To try the deployed app, open the frontend and use **Analyze email**. Submit one clearly suspicious sample (for example, an urgent account-verification message containing a fabricated URL such as `https://secure-bank-login.example.com/verify`) and one ordinary legitimate sample (for example, a meeting update with no request for credentials or payment). Review the classification, confidence, risk, URL and keyword indicators, and explanation. Open **Detection history** to confirm both analyses were saved, **Overview** to see updated counts, and **Performance** to inspect the model report. Predictions are model output and are not guaranteed ground truth; use fictional test messages and do not paste confidential email.
+
+The deployed Java endpoints include `GET /api/health`, `POST /api/analyze` with `{"emailText":"..."}`, `GET /api/history`, `GET /api/stats`, and `GET /api/metrics`. A successful `/api/health` response reports Java status and Flask health; `/actuator/health` reports Spring service health. The Flask health endpoint is `GET /health`.
+
+Live smoke test on 2026-11-20: two fictional messages submitted to the public Java `POST /api/analyze` endpoint returned saved record IDs and actual model results. The urgent credential-verification sample returned `PHISHING`, 0.5919 confidence, `HIGH` risk, one extracted URL, and credential-request/urgency indicators. The routine project-meeting sample returned `SAFE`, 0.6014 confidence, `LOW` risk, and no URL or keyword indicators. Confidence is uncalibrated model output. Automated GET checks for health, history, metrics, and the static homepage received Cloudflare challenge pages (HTTP 403) in the verification environment, so those GET responses and the interactive browser pages were not verified in that run.
+
+H2 uses ephemeral in-memory storage on Render. Detection history is available while the Java instance remains running and is lost when it restarts, spins down, or redeploys. A persistent disk or durable database is not configured.
+
+Render Free web services use 512 MB RAM and share 750 instance-hours per workspace per calendar month. A service idles down after 15 minutes without inbound traffic; the next request may wait about a minute for it to start. Free services can restart and have ephemeral filesystems, and usage limits can suspend them. Static sites are free and do not consume web-service instance-hours. See [Render's current Free plan limits](https://render.com/docs/free).
